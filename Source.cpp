@@ -78,7 +78,9 @@ void move_offset(std::array<Pos, 28>& RelPos,Pos pos) {
 
 struct Cell {
 	double rho = 0;//–§“x
-	double div_rho = 0;
+	std::tuple<double, double, double> velocity;
+	std::tuple<double, double, double> grad_rho = { 0.0,0.0,0.0 };
+	double div_velocity = 0;
 	std::array<int, 27> twn;
 };
 struct Generate {
@@ -87,7 +89,8 @@ struct Generate {
 	std::map <std::tuple<int,int,int>,Cell> cells;
 	double celllength;
 	Pos offset = Pos{0,0,0};
-	int randseed;
+	int rho_randseed;
+	int velo_randseed;
 	int xnum = 3, ynum = 3, znum = 3;
 	
 
@@ -119,8 +122,10 @@ struct Generate {
 
 	Generate(double celllength_) :celllength(celllength_) {
 		std::random_device randdev;
-		randseed = randdev();
-		std::mt19937 engine(randseed);
+		rho_randseed = randdev();
+		velo_randseed = randdev();
+		std::mt19937 rhoengine(rho_randseed);
+		std::mt19937 veloengine(velo_randseed);
 		std::uniform_real_distribution<> dist(-5.0, 5.0);
 
 		auto RelPos = init();
@@ -142,13 +147,15 @@ struct Generate {
 					}
 
 					cells[{x, y, z}].twn = twn;
-					cells[{x, y, z}].rho = dist(engine);
+					cells[{x, y, z}].rho = dist(rhoengine);
+					cells[{x, y, z}].velocity = { dist(veloengine),dist(veloengine),dist(veloengine) };
 
 				}
 			}
 		}
 
-		calcdivergence();
+		calc_grad();
+		calc_div();
 	}
 
 	template<class Func>
@@ -173,20 +180,32 @@ struct Generate {
 		}
 	}
 
-	void calcdivergence() {
+	void calc_grad() {
 		std::map<std::tuple<int, int, int>, double> ret;
 		for (int x = 0; x < xnum; x++) {
 			for (int y = 0; y < ynum; y++) {
 				for (int z = 0; z < znum; z++) {
-					cells[{x,y,z}].div_rho = (cells[{x, y, z}].rho - cells[{x - 1, y, z}].rho)
-						+ (cells[{x, y, z}].rho - cells[{x, y - 1, z}].rho
-							+ cells[{x, y, z}].rho - cells[{x, y, z - 1}].rho) / celllength;	
+					cells[{x, y, z}].grad_rho = { (cells[{x, y, z}].rho - cells[{x - 1, y, z}].rho)/celllength,
+						(cells[{x, y, z}].rho - cells[{x, y - 1, z}].rho)/celllength,
+							(cells[{x, y, z}].rho - cells[{x, y, z - 1}].rho)/celllength };
 				}
 			}
 		}
-
 	}
 
+	void calc_div() {
+		std::map<std::tuple<int, int, int>, double> ret;
+		for (int x = 0; x < xnum; x++) {
+			for (int y = 0; y < ynum; y++) {
+				for (int z = 0; z < znum; z++) {
+
+					cells[{x, y, z}].div_velocity = (std::get<0>(cells[{x, y, z}].velocity) - std::get<0>(cells[{x - 1, y, z}].velocity))
+						+ (std::get<1>(cells[{x, y, z}].velocity) - std::get<1>(cells[{x, y - 1, z}].velocity)
+							+ std::get<2>(cells[{x, y, z}].velocity) - std::get<2>(cells[{x, y, z - 1}].velocity)) / celllength;
+				}
+			}
+		}
+	}
 
 };
 
@@ -228,7 +247,7 @@ int main()
 	//rho data
 	std::string rhoname = "rho.csv";
 	std::ofstream rhofs{ rhoname };
-	rhofs << "randseed:" <<gen.randseed << std::endl;
+	rhofs << "rho_randseed:" <<gen.rho_randseed << std::endl;
 	auto rhooutput = [&](Cell& cell, bool last) {
 		rhofs << cell.rho;
 
@@ -237,6 +256,20 @@ int main()
 		}
 	};
 	gen.cell_foreach_withend(rhooutput);
+
+
+	//velocity data
+	std::string veloname = "velocity.csv";
+	std::ofstream velofs{ veloname };
+	velofs << "velo_randseed" << gen.velo_randseed << std::endl;
+	auto velooutput = [&](Cell& cell, bool last) {
+		velofs << std::get<0>(cell.velocity) << "," << std::get<1>(cell.velocity) << "," << std::get<0>(cell.velocity);
+
+		if (!last) {
+			velofs << std::endl;
+		}
+	};
+	gen.cell_foreach_withend(velooutput);
 
 
 
@@ -269,7 +302,7 @@ int main()
 	std::string divrhoname = "divrho.csv";
 	std::ofstream divrhofs{ divrhoname };
 	auto divrhooutput = [&](Cell& cell, bool last) {
-		divrhofs << cell.div_rho;
+		divrhofs << std::get<0>(cell.grad_rho) << "," << std::get<1>(cell.grad_rho) << "," << std::get<2>(cell.grad_rho);
 
 		if (!last) {
 			divrhofs << std::endl;
@@ -277,6 +310,19 @@ int main()
 	};
 	gen.cell_foreach_withend(divrhooutput);
 	
+
+	//rho data
+	std::string divveloname = "divvelocity.csv";
+	std::ofstream divvelofs{ divveloname };
+	divvelofs << "divvelo_randseed:" << gen.velo_randseed << std::endl;
+	auto divvelooutput = [&](Cell& cell, bool last) {
+		divvelofs << cell.div_velocity;
+
+		if (!last) {
+			divvelofs << std::endl;
+		}
+	};
+	gen.cell_foreach_withend(divvelooutput);
 
 
 }
