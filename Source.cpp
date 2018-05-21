@@ -10,8 +10,11 @@
 //-0.5,-0.5,0.5の位置をNo.1ノードとする
 
 
-struct Pos {
+struct Vec {
+	enum class Type :int {Corner,Surface,Edge,Center};
 	double x = 0, y = 0, z = 0;
+	Type type;
+
 	std::string show() {
 		std::string ret;
 		ret += std::to_string(x);
@@ -22,13 +25,13 @@ struct Pos {
 		return ret;
 	}
 
-	Pos operator+(const Pos& pos) {
-		auto ret = Pos{ x + pos.x,y + pos.y,z + pos.z };
+	Vec operator+(const Vec& pos) {
+		auto ret = Vec{ x + pos.x,y + pos.y,z + pos.z };
 		return ret;
 	}
 
-	Pos operator*(float c) {
-		auto ret = Pos{ x*c,y*c,z*c };
+	Vec operator*(float c) {
+		auto ret = Vec{ x*c,y*c,z*c };
 		return ret;
 	}
 };
@@ -37,40 +40,39 @@ struct Pos {
 #define Z (0)
 #define M (-1)
 
-std::array<Pos, 28> init() {
-	std::array<Pos, 28> RelPos;
-	RelPos[0] = { Z,Z,Z };
-	RelPos[1] = { M,M,M };
-	RelPos[2] = { P,M,M };
-	RelPos[3] = { P,P,M };
-	RelPos[4] = { M,P,M };
-	RelPos[5] = { M,M,P };
-	RelPos[6] = { P,M,P };
-	RelPos[7] = { P,P,P };
-	RelPos[8] = { M,P,P };
-	RelPos[9] = { Z,M,M };
-	RelPos[10] = { P,Z,M };
-	RelPos[11] = { Z,P,M };
-	RelPos[12] = { M,Z,M };
-	RelPos[13] = { Z,M,P };
-	RelPos[14] = { P,Z,P };
-	RelPos[15] = { Z,P,P };
-	RelPos[16] = { M,Z,P };
-	RelPos[17] = { M,M,Z };
-	RelPos[18] = { P,M,Z };
-	RelPos[19] = { P,P,Z };
-	RelPos[20] = { M,P,Z };
-	RelPos[21] = { Z,Z,M };
-	RelPos[22] = { Z,Z,P };
-	RelPos[23] = { Z,M,Z };
-	RelPos[24] = { P,Z,Z };
-	RelPos[25] = { Z,P,Z };
-	RelPos[26] = { M,Z,Z };
-	RelPos[27] = { Z,Z,Z };
+std::array<Vec, 28>& getRelPos() {
+	static std::array<Vec, 28> RelPos;
+	RelPos[0] = { Z,Z,Z,Vec::Type::Center};
+	RelPos[1] = { M,M,M,Vec::Type::Corner };
+	RelPos[2] = { P,M,M,Vec::Type::Corner };
+	RelPos[3] = { P,P,M,Vec::Type::Corner };
+	RelPos[4] = { M,P,M,Vec::Type::Corner };
+	RelPos[5] = { M,M,P,Vec::Type::Corner };
+	RelPos[6] = { P,M,P,Vec::Type::Corner };
+	RelPos[7] = { P,P,P ,Vec::Type::Corner };
+	RelPos[8] = { M,P,P,Vec::Type::Corner };
+	RelPos[9] = { Z,M,M,Vec::Type::Edge };
+	RelPos[10] = { P,Z,M,Vec::Type::Edge };
+	RelPos[11] = { Z,P,M,Vec::Type::Edge };
+	RelPos[12] = { M,Z,M,Vec::Type::Edge };
+	RelPos[13] = { Z,M,P,Vec::Type::Edge };
+	RelPos[14] = { P,Z,P,Vec::Type::Edge };
+	RelPos[15] = { Z,P,P,Vec::Type::Edge };
+	RelPos[16] = { M,Z,P,Vec::Type::Edge };
+	RelPos[17] = { M,M,Z ,Vec::Type::Edge };
+	RelPos[18] = { P,M,Z ,Vec::Type::Edge };
+	RelPos[19] = { P,P,Z ,Vec::Type::Edge };
+	RelPos[20] = { M,P,Z ,Vec::Type::Edge };
+	RelPos[21] = { Z,Z,M ,Vec::Type::Surface};
+	RelPos[22] = { Z,Z,P ,Vec::Type::Surface };
+	RelPos[23] = { Z,M,Z ,Vec::Type::Surface };
+	RelPos[24] = { P,Z,Z ,Vec::Type::Surface };
+	RelPos[25] = { Z,P,Z ,Vec::Type::Surface };
+	RelPos[26] = { M,Z,Z ,Vec::Type::Surface };
 	return RelPos;
 
 }
-void move_offset(std::array<Pos, 28>& RelPos,Pos pos) {
+void move_offset(std::array<Vec, 28>& RelPos,Vec pos) {
 	for (auto& e : RelPos) {
 		e = e + pos;
 	}
@@ -83,12 +85,100 @@ struct Cell {
 	double div_velocity = 0;
 	std::array<int, 27> twn;
 };
+
+
+
+struct Edge {
+	int node1;
+	int node2;
+};
+
+struct Surface {
+	std::array<Edge, 4> edges;
+};
+
+
+struct FormBase {
+	enum class Type :int { Three, Two, One, Zero };
+	int index;
+	Type type;
+	virtual ~FormBase() {}
+};
+
+struct ThreeForm:public FormBase {
+	Cell origin_cell;
+	int dual_point;
+	double rho;
+	virtual ~ThreeForm() override {}
+};
+
+struct TwoForm:public FormBase {
+	Surface origin_surf;
+	Edge dual_edge;
+	std::tuple<double,double,double> vel;
+	virtual ~TwoForm() override {}
+};
+
+struct OneForm:public FormBase {
+	Edge origin_edge;
+	Surface dual_sruface;
+	virtual ~OneForm() override {}
+};
+
+struct ZeroForm:public FormBase {
+	int origin_point;
+	Cell dual_cell;
+	virtual ~ZeroForm() override {}
+};
+
+//node index -> Form
+//Func:: Int->Pos
+std::map<int, FormBase*> createForms(std::map <std::tuple<int, int, int>, Cell>& cells, std::map<int, Vec>& Nodes) {
+	std::map<int, FormBase*> ret;
+	auto RelPos = getRelPos();
+	for (auto& cell : cells) {
+		for (int i = 0; i < cell.second.twn.size(); i++){
+			auto type = RelPos[i].type;
+			auto index = cell.second.twn[i];
+
+			if (type == Vec::Type::Center) {
+				if (ret.count(index) > 0) {
+					auto ptr = new ThreeForm{};
+					ptr->index = index;
+					ptr->type = FormBase::Type::Three;
+					ptr->dual_point = index;
+					
+				}
+			}
+			else if (type == Vec::Type::Corner) {
+				if (ret.count(index) > 0) {
+					auto ptr = new ZeroForm{};
+					ptr->index = index;
+					ptr->type = FormBase::Type::Three;
+					ptr->dual_cell;
+				}
+			}
+			else if (type == Vec::Type::Edge) {
+				if (ret.count(index) > 0) {
+
+				}
+			}
+			else if (type == Vec::Type::Surface) {
+				if (ret.count(index) > 0) {
+
+				}
+			}
+		}
+		return ret;
+	}
+}
+
 struct Generate {
 
-	std::map<int, Pos> Nodes;
+	std::map<int, Vec> Nodes;
 	std::map <std::tuple<int,int,int>,Cell> cells;
 	double celllength;
-	Pos offset = Pos{0,0,0};
+	Vec offset = Vec{0,0,0};
 	int rho_randseed;
 	int velo_randseed;
 	int xnum = 3, ynum = 3, znum = 3;
@@ -102,7 +192,7 @@ struct Generate {
 	//(x,y,z)の位置にある頂点から双対メッシュをつくる
 	std::array<std::tuple<int, int, int>, 27> gettwn(int x, int y, int z) {
 		std::array<std::tuple<int, int, int>, 27> ret;
-		auto RelPos = init();
+		auto RelPos = getRelPos();
 	
 		for (int i = 1, e = 27; i <= e;i++) {
 			std::tuple<int, int, int> n;
@@ -115,8 +205,8 @@ struct Generate {
 		return ret;
 	}
 
-	Pos getpos(int x, int y, int z) {
-		Pos ret = offset + Pos{ celllength*x/2.0 , celllength*y/2.0 , celllength*z/2.0 };
+	Vec getpos(int x, int y, int z) {
+		Vec ret = offset + Vec{ celllength*x/2.0 , celllength*y/2.0 , celllength*z/2.0 };
 		return ret;
 	}
 
@@ -128,8 +218,8 @@ struct Generate {
 		std::mt19937 veloengine(velo_randseed);
 		std::uniform_real_distribution<> dist(-5.0, 5.0);
 
-		auto RelPos = init();
-		move_offset(RelPos, Pos{ 1,1,1 });
+		auto RelPos = getRelPos();
+		move_offset(RelPos, Vec{ 1,1,1 });
 
 		int index = 0;
 		for (auto x = 0; x < xnum; x++) {
@@ -139,7 +229,7 @@ struct Generate {
 					std::array<int, 27> twn;
 					for (auto i = 1, e = 27; i <= e;i++) {
 						auto& relpos = RelPos[i];
-						auto node_relpos = Pos{x*2.0,y*2.0,z*2.0}+relpos;
+						auto node_relpos = Vec{x*2.0,y*2.0,z*2.0}+relpos;
 						auto node_realpos = getpos(node_relpos.x, node_relpos.y, node_relpos.z);
 						auto index = getindex(node_relpos.x,node_relpos.y,node_relpos.z);
 						Nodes[index] = node_realpos;
@@ -212,14 +302,11 @@ struct Generate {
 
 
 
-
-int main()
-{
-	Generate gen{2};
+void output(Generate& gen) {
 
 
 	//node data
-	std::ofstream nodefs{"nodes.csv"};
+	std::ofstream nodefs{ "nodes.csv" };
 	for (auto i = gen.Nodes.begin(), e = gen.Nodes.end(); i != e; i++) {
 		nodefs << i->second.show();
 		if (std::next(i) != e) {
@@ -230,7 +317,7 @@ int main()
 
 	//twenty vertices data
 	std::ofstream twnfs{ "twn.csv" };
-	auto twnoutput = [&](Cell& cell,bool last) {
+	auto twnoutput = [&](Cell& cell, bool last) {
 		for (auto twnb = 0, size = 20; twnb < size; twnb++) {
 			twnfs << cell.twn[twnb] + 1;
 			if (twnb + 1 != size) {
@@ -247,7 +334,7 @@ int main()
 	//rho data
 	std::string rhoname = "rho.csv";
 	std::ofstream rhofs{ rhoname };
-	rhofs << "rho_randseed:" <<gen.rho_randseed << std::endl;
+	rhofs << "rho_randseed:" << gen.rho_randseed << std::endl;
 	auto rhooutput = [&](Cell& cell, bool last) {
 		rhofs << cell.rho;
 
@@ -274,7 +361,7 @@ int main()
 
 
 	//dual-mesh twenty vertices datas
-	std::array<std::array<std::tuple<int, int, int>,27>, 8> duals;
+	std::array<std::array<std::tuple<int, int, int>, 27>, 8> duals;
 	duals[0] = gen.gettwn(2, 2, 2);
 	duals[1] = gen.gettwn(4, 2, 2);
 	duals[2] = gen.gettwn(4, 4, 2);
@@ -288,7 +375,7 @@ int main()
 	for (auto i = duals.begin(), e = duals.end(); i != e; i++) {
 		for (auto twnb = 0, size = 20; twnb < size; twnb++) {
 			auto pos = (*i)[twnb];
-			dualtwnfs << gen.getindex(std::get<0>(pos),std::get<1>(pos),std::get<2>(pos)) + 1;
+			dualtwnfs << gen.getindex(std::get<0>(pos), std::get<1>(pos), std::get<2>(pos)) + 1;
 			if (twnb + 1 != size) {
 				dualtwnfs << ",";
 			}
@@ -309,7 +396,7 @@ int main()
 		}
 	};
 	gen.cell_foreach_withend(divrhooutput);
-	
+
 
 	//rho data
 	std::string divveloname = "divvelocity.csv";
@@ -323,6 +410,13 @@ int main()
 		}
 	};
 	gen.cell_foreach_withend(divvelooutput);
+}
+
+int main()
+{
+	Generate gen{2};
+	output(gen);
+
 
 
 }
